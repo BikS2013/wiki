@@ -2,6 +2,8 @@
 
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
+import { unlink } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import type { WikiConfig } from '../config/types.js';
 import type { Logger } from '../utils/logger.js';
 import { SourceRegistry } from '../wiki/registry.js';
@@ -93,6 +95,19 @@ export async function execute(options: RemoveSourceCommandOptions): Promise<void
 
     // Save updated index
     await indexManager.save();
+
+    // Delete the copied source file from sources/files/
+    if (source.filePath && !source.filePath.startsWith('/')) {
+      const copiedFilePath = join(config.wiki.rootDir, source.filePath);
+      if (existsSync(copiedFilePath)) {
+        try {
+          await unlink(copiedFilePath);
+          logger.verbose(`Deleted copied source file: ${source.filePath}`);
+        } catch {
+          logger.warn(`Could not delete copied source file: ${source.filePath}`);
+        }
+      }
+    }
 
     // Remove from registry
     registry.remove(source.id);

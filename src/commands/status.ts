@@ -68,7 +68,7 @@ export async function execute(options: StatusCommandOptions): Promise<void> {
     let staleSourceCount = 0;
 
     try {
-      const findings = await runStructuralChecks(wikiDir, registryPath);
+      const findings = await runStructuralChecks(wikiDir, registryPath, config.wiki.rootDir);
       orphanCount = findings.filter(
         (f) => f.category === 'ORPHAN',
       ).length;

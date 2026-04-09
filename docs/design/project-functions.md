@@ -319,3 +319,31 @@ The following new environment variables must be supported:
 - `WIKI_VERTEX_PROJECT_ID` maps to `llm.vertexProjectId`
 - `WIKI_VERTEX_LOCATION` maps to `llm.vertexLocation`
 These follow the same priority order as existing env vars: CLI arguments > environment variables > config.json.
+
+---
+
+## Source File Copying & Clipboard Ingest (added 2026-04-09)
+
+### FR-51: Source File Copying
+When ingesting a source, the system must COPY the source file into `<rootDir>/sources/files/` rather than storing the original absolute path. The registry must store the relative path (e.g., `sources/files/article.md`). This makes the wiki self-contained — original source files can be moved or deleted after ingestion.
+
+### FR-52: Source File Deduplication
+If a file with the same name already exists in `sources/files/`, the system must append a numeric suffix (e.g., `article-1.md`, `article-2.md`) to avoid overwriting.
+
+### FR-53: Init Creates sources/files/ Directory
+The `wiki init` command must create the `sources/files/` subdirectory as part of the initial wiki structure.
+
+### FR-54: Stale Source Detection with Relative Paths
+The lint stale source check must resolve `filePath` relative to `rootDir` when the path is not absolute, to correctly hash the copied source file.
+
+### FR-55: Source Removal Deletes Copied File
+The `wiki remove-source` command must delete the copied source file from `sources/files/` in addition to removing the registry entry.
+
+### FR-56: Clipboard Ingest (macOS)
+The system must support `wiki ingest --clipboard` to ingest content from the system clipboard. On macOS, it must support both text (via `pbpaste`) and image (via AppKit NSPasteboard) clipboard content.
+
+### FR-57: Clipboard Content Saving
+Clipboard content must be saved as a file in `sources/files/` with a generated name: `clipboard-<YYYY-MM-DD-HHmmss>.txt` for text or `clipboard-<YYYY-MM-DD-HHmmss>.png` for images. The saved file is then processed through the normal ingest pipeline.
+
+### FR-58: Clipboard/Source Mutual Exclusivity
+The `--clipboard` flag and `<source>` argument are mutually exclusive. If both are provided, the CLI must show an error. If neither is provided, the CLI must show an error.

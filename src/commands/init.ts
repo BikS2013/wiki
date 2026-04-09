@@ -11,14 +11,27 @@ import { createLogger, type Logger } from '../utils/logger.js';
 
 const CONFIG_TEMPLATE = JSON.stringify(
   {
+    _comment: 'LLM Wiki Configuration. Values can be overridden by environment variables (higher priority). See docs/design/configuration-guide.md for details.',
     llm: {
+      _comment_provider: 'Options: anthropic, azure, vertex | Env: WIKI_LLM_PROVIDER',
       provider: '',
+      _comment_model: 'Model identifier (e.g. claude-sonnet-4-20250514, gpt-4o, gemini-2.5-pro) | Env: WIKI_LLM_MODEL',
       model: '',
+      _comment_apiKey: 'Required for anthropic and azure, not needed for vertex | Env: WIKI_LLM_API_KEY',
       apiKey: '',
+      _comment_apiKeyExpiry: 'Optional ISO 8601 date. Warns 7 days before expiry.',
       apiKeyExpiry: '',
-      maxTokens: 0,
+      _comment_maxTokens: 'Max output tokens per LLM call | Env: WIKI_LLM_MAX_TOKENS',
+      maxTokens: 4096,
+      _comment_azure: 'Required when provider = azure | Env: WIKI_AZURE_ENDPOINT, WIKI_AZURE_DEPLOYMENT',
+      azureEndpoint: '',
+      azureDeployment: '',
+      _comment_vertex: 'Required when provider = vertex | Env: WIKI_VERTEX_PROJECT_ID, WIKI_VERTEX_LOCATION',
+      vertexProjectId: '',
+      vertexLocation: '',
     },
     wiki: {
+      _comment_rootDir: 'Absolute path to wiki root | Env: WIKI_ROOT_DIR',
       rootDir: '',
       sourcesDir: 'sources',
       wikiDir: 'wiki',
@@ -415,6 +428,7 @@ export function registerInitCommand(program: Command): void {
       // ------------------------------------------------------------------
       const directories = [
         join(rootDir, 'sources'),
+        join(rootDir, 'sources', 'files'),
         join(rootDir, 'wiki', 'sources'),
         join(rootDir, 'wiki', 'entities'),
         join(rootDir, 'wiki', 'topics'),

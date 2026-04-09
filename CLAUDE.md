@@ -86,6 +86,7 @@ A TypeScript CLI tool that builds and maintains a persistent, structured persona
         Commands:
             wiki init                      Initialize a new wiki in the current directory
             wiki ingest <source>           Ingest a source file or directory
+            wiki ingest --clipboard        Ingest from system clipboard (text or image)
             wiki query <question>          Query the wiki with natural language
             wiki lint                      Run health checks on the wiki
             wiki status                    Show wiki statistics
@@ -101,10 +102,17 @@ A TypeScript CLI tool that builds and maintains a persistent, structured persona
             --version                      Show version
 
         Ingest Options:
+            --clipboard                    Ingest from system clipboard (text or image, macOS)
             --recursive                    Scan directory recursively
             --format <type>                Force source format
             --tags <tags...>               Tags for generated pages
             --metadata <key=value...>      Additional source metadata
+
+        Source Handling:
+            Source files are COPIED into sources/files/ inside the wiki root.
+            The wiki is self-contained — original source files can be moved/deleted
+            after ingestion without affecting the wiki.
+            Clipboard content is saved as clipboard-<timestamp>.txt or .png.
 
         Query Options:
             --save                         Save answer as a wiki page
@@ -157,12 +165,20 @@ A TypeScript CLI tool that builds and maintains a persistent, structured persona
 
         Examples:
             npx tsx src/cli.ts init                           # Create wiki structure
-            npx tsx src/cli.ts ingest article.md              # Ingest a source
+            npx tsx src/cli.ts ingest article.md              # Ingest a source (copies to sources/files/)
             npx tsx src/cli.ts ingest docs/ --recursive       # Ingest a directory
+            npx tsx src/cli.ts ingest --clipboard             # Ingest from clipboard (text or image)
             npx tsx src/cli.ts query "What is X?"             # Query the wiki
             npx tsx src/cli.ts query --save "Compare A and B" # Query and save result
             npx tsx src/cli.ts lint                           # Health check
             npx tsx src/cli.ts lint --fix                     # Auto-fix issues
             npx tsx src/cli.ts status                         # Wiki statistics
+        Documentation:
+            docs/design/project-design.md        # Full technical design
+            docs/design/configuration-guide.md   # All config options explained
+            docs/design/deployment-guide.md      # Installation, setup, and usage
+            docs/design/project-functions.md     # Functional requirements
+            docs/design/plan-001-llm-wiki-implementation.md   # Original implementation plan
+            docs/design/plan-002-multi-provider-support.md    # Multi-provider plan
     </info>
 </Wiki>

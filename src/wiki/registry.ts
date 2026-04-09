@@ -10,7 +10,7 @@ import path from 'node:path';
 export interface SourceEntry {
   /** UUID v4 identifier */
   id: string;
-  /** Absolute path to the source file */
+  /** Relative path to the copied source file within rootDir (e.g. "sources/files/article.md") */
   filePath: string;
   /** Original filename (basename) */
   fileName: string;
@@ -165,7 +165,7 @@ export class SourceRegistry {
   }
 
   /**
-   * Find a source entry by its absolute file path.
+   * Find a source entry by its relative file path (relative to rootDir).
    */
   findByPath(filePath: string): SourceEntry | undefined {
     this.ensureLoaded();

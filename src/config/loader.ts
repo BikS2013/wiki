@@ -1,7 +1,7 @@
 // src/config/loader.ts -- Load config from file, merge env vars, CLI overrides
 
-import { readFile } from 'node:fs/promises';
-import { resolve } from 'node:path';
+import { readFile, access } from 'node:fs/promises';
+import { join, resolve } from 'node:path';
 import { WikiConfig, ConfigurationError } from './types.js';
 import { validateConfig, checkApiKeyExpiry } from './validator.js';
 
@@ -21,7 +21,7 @@ export async function loadConfig(options: {
   configPath?: string;
   cliOverrides?: Partial<WikiConfig>;
 }): Promise<WikiConfig> {
-  const configPath = resolve(options.configPath ?? 'config.json');
+  const configPath = await resolveConfigPath(options.configPath);
 
   // 1. Read config file
   const fileConfig = await readConfigFile(configPath);
@@ -41,6 +41,45 @@ export async function loadConfig(options: {
   checkApiKeyExpiry(validated);
 
   return validated;
+}
+
+/**
+ * Resolve the config file path. Search order:
+ *   1. Explicit --config path (if provided)
+ *   2. ./config.json (current working directory)
+ *   3. $WIKI_ROOT_DIR/config.json (if WIKI_ROOT_DIR env var is set)
+ *
+ * Throws ConfigurationError if none of the locations contain a config file.
+ */
+async function resolveConfigPath(explicitPath?: string): Promise<string> {
+  // If user provided an explicit path, use it (no fallback search)
+  if (explicitPath) {
+    return resolve(explicitPath);
+  }
+
+  // Try ./config.json first
+  const cwdConfig = resolve('config.json');
+  try {
+    await access(cwdConfig);
+    return cwdConfig;
+  } catch {
+    // Not in cwd, try WIKI_ROOT_DIR
+  }
+
+  // Try $WIKI_ROOT_DIR/config.json
+  const wikiRootDir = process.env.WIKI_ROOT_DIR;
+  if (wikiRootDir) {
+    const rootDirConfig = join(resolve(wikiRootDir), 'config.json');
+    try {
+      await access(rootDirConfig);
+      return rootDirConfig;
+    } catch {
+      // Not there either
+    }
+  }
+
+  // Neither found — return cwd path so readConfigFile throws a clear error
+  return cwdConfig;
 }
 
 /**

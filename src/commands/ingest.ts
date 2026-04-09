@@ -2,7 +2,7 @@
 
 import type { Command } from 'commander';
 import { resolve } from 'node:path';
-import { stat } from 'node:fs/promises';
+import { stat, mkdir } from 'node:fs/promises';
 import { readdirSync, statSync } from 'node:fs';
 import { join, extname } from 'node:path';
 
@@ -12,26 +12,43 @@ import { createLogger } from '../utils/logger.js';
 import { IngestPipeline } from '../ingest/pipeline.js';
 import type { IngestOptions, IngestResult } from '../ingest/pipeline.js';
 import { getSupportedFormats } from '../source/reader.js';
+import { saveClipboardToFile } from '../source/clipboard.js';
 
 /**
  * Register the `wiki ingest <source>` command on the given Commander program.
  */
 export function registerIngestCommand(program: Command): void {
   program
-    .command('ingest <source>')
+    .command('ingest [source]')
     .description('Ingest a source document into the wiki knowledge base')
     .option('-r, --recursive', 'Recursively ingest all supported files in a directory', false)
     .option('-f, --format <type>', 'Force source format (e.g., md, txt, pdf, json)')
     .option('-t, --tags <tags...>', 'Tags to apply to generated pages')
     .option('-m, --metadata <pairs...>', 'Metadata key=value pairs (e.g., author=Smith project=Alpha)')
-    .action(async (source: string, cmdOptions: Record<string, unknown>) => {
+    .option('--clipboard', 'Ingest content from the system clipboard')
+    .action(async (source: string | undefined, cmdOptions: Record<string, unknown>) => {
       // Retrieve global options from parent program
       const parentOpts = program.opts();
       const config = parentOpts._config as WikiConfig;
       const verbose = parentOpts.verbose as boolean ?? false;
       const dryRun = parentOpts.dryRun as boolean ?? false;
+      const useClipboard = cmdOptions.clipboard as boolean ?? false;
 
       const logger = createLogger({ verbose });
+
+      // Validate mutually exclusive options
+      if (useClipboard && source) {
+        logger.error('Cannot use both --clipboard and a source file argument. Choose one.');
+        process.exitCode = 1;
+        return;
+      }
+
+      if (!useClipboard && !source) {
+        logger.error('Either provide a <source> file/directory or use --clipboard.');
+        process.exitCode = 1;
+        return;
+      }
+
       const provider = createProvider(config.llm);
       const pipeline = new IngestPipeline(config, provider, logger);
 
@@ -53,7 +70,24 @@ export function registerIngestCommand(program: Command): void {
         recursive: cmdOptions.recursive as boolean ?? false,
       };
 
-      const sourcePath = resolve(source);
+      // Handle clipboard mode
+      if (useClipboard) {
+        try {
+          const sourcesFilesDir = join(config.wiki.rootDir, 'sources', 'files');
+          await mkdir(sourcesFilesDir, { recursive: true });
+          logger.info('Reading clipboard content...');
+          const clipboardFilePath = await saveClipboardToFile(sourcesFilesDir);
+          logger.info(`Clipboard content saved to: ${clipboardFilePath}`);
+          const result = await pipeline.ingest(clipboardFilePath, ingestOptions);
+          printResult(logger, result);
+        } catch (err) {
+          logger.error(`Clipboard ingest failed: ${(err as Error).message}`);
+          process.exitCode = 1;
+        }
+        return;
+      }
+
+      const sourcePath = resolve(source!);
 
       try {
         const sourceStat = await stat(sourcePath);

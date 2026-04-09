@@ -1,8 +1,8 @@
 // src/ingest/pipeline.ts -- IngestPipeline: multi-step orchestration
 
-import { readFile, writeFile, mkdir } from 'node:fs/promises';
+import { readFile, writeFile, mkdir, copyFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
-import { join, basename, extname, resolve } from 'node:path';
+import { join, basename, extname, resolve, relative } from 'node:path';
 
 import type { LLMProvider } from '../llm/provider.js';
 import type { WikiConfig } from '../config/types.js';
@@ -88,9 +88,23 @@ export class IngestPipeline {
       const sourceFileName = basename(absoluteSourcePath);
 
       // ------------------------------------------------------------------
-      // Step 2: Hash content
+      // Step 1b: Copy source file to sources/files/
       // ------------------------------------------------------------------
-      const contentHash = await hashFile(absoluteSourcePath);
+      let copiedRelativePath: string | undefined;
+      if (!dryRun) {
+        copiedRelativePath = await copySourceFile(absoluteSourcePath, rootDir);
+        this.logger.verbose(`Source copied to: ${copiedRelativePath}`);
+      } else {
+        this.logger.info(`[DRY RUN] Would copy source to sources/files/${sourceFileName}`);
+      }
+
+      // ------------------------------------------------------------------
+      // Step 2: Hash content (hash the copied file if available, else original)
+      // ------------------------------------------------------------------
+      const hashTarget = copiedRelativePath
+        ? join(rootDir, copiedRelativePath)
+        : absoluteSourcePath;
+      const contentHash = await hashFile(hashTarget);
       this.logger.verbose(`Content hash: ${contentHash}`);
 
       // ------------------------------------------------------------------
@@ -114,7 +128,8 @@ export class IngestPipeline {
       // Step 4: Register source with status 'ingesting'
       // ------------------------------------------------------------------
       const now = new Date().toISOString();
-      const existingByPath = registry.findByPath(absoluteSourcePath);
+      const registryFilePath = copiedRelativePath ?? `sources/files/${sourceFileName}`;
+      const existingByPath = registry.findByPath(registryFilePath);
       if (existingByPath) {
         sourceEntry = registry.update(existingByPath.id, {
           contentHash,
@@ -123,7 +138,7 @@ export class IngestPipeline {
         });
       } else {
         sourceEntry = registry.add({
-          filePath: absoluteSourcePath,
+          filePath: registryFilePath,
           fileName: sourceFileName,
           format: sourceFormat,
           contentHash,
@@ -465,6 +480,35 @@ export class IngestPipeline {
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
+
+/**
+ * Copy a source file into <rootDir>/sources/files/, deduplicating the filename
+ * if a file with the same name already exists. Returns the relative path
+ * (from rootDir) of the copied file (e.g. "sources/files/article.md").
+ */
+async function copySourceFile(
+  absoluteSourcePath: string,
+  rootDir: string,
+): Promise<string> {
+  const filesDir = join(rootDir, 'sources', 'files');
+  await mkdir(filesDir, { recursive: true });
+
+  const originalName = basename(absoluteSourcePath);
+  const ext = extname(originalName);
+  const stem = originalName.slice(0, originalName.length - ext.length);
+
+  let destName = originalName;
+  let counter = 1;
+  while (existsSync(join(filesDir, destName))) {
+    destName = `${stem}-${counter}${ext}`;
+    counter++;
+  }
+
+  const destPath = join(filesDir, destName);
+  await copyFile(absoluteSourcePath, destPath);
+
+  return relative(rootDir, destPath);
+}
 
 /**
  * Create a new entity page via LLM.

@@ -19,6 +19,7 @@ import { hashFile } from '../source/hasher.js';
 export async function runStructuralChecks(
   wikiDir: string,
   registryPath: string,
+  rootDir?: string,
 ): Promise<LintFinding[]> {
   const pageManager = new PageManager(wikiDir);
   const indexManager = new IndexManager();
@@ -30,7 +31,7 @@ export async function runStructuralChecks(
 
   findings.push(...(await checkOrphans(pageManager, indexManager)));
   findings.push(...(await checkBrokenLinks(pageManager)));
-  findings.push(...(await checkStaleSources(registry)));
+  findings.push(...(await checkStaleSources(registry, rootDir)));
   findings.push(...(await checkFrontmatter(pageManager)));
 
   return findings;
@@ -129,6 +130,7 @@ async function checkBrokenLinks(
  */
 async function checkStaleSources(
   registry: SourceRegistry,
+  rootDir?: string,
 ): Promise<LintFinding[]> {
   const findings: LintFinding[] = [];
   const sources = registry.getAll();
@@ -136,8 +138,13 @@ async function checkStaleSources(
   for (const source of sources) {
     if (source.status !== 'ingested') continue;
 
+    // Resolve filePath: if rootDir is provided and filePath is relative, resolve against rootDir
+    const resolvedPath = rootDir && !source.filePath.startsWith('/')
+      ? join(rootDir, source.filePath)
+      : source.filePath;
+
     try {
-      const currentHash = await hashFile(source.filePath);
+      const currentHash = await hashFile(resolvedPath);
       if (currentHash !== source.contentHash) {
         findings.push({
           severity: 'error',

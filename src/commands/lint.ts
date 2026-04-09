@@ -63,6 +63,7 @@ export async function execute(options: LintCommandOptions): Promise<void> {
       let structuralFindings = await runStructuralChecks(
         wikiDir,
         registryPath,
+        config.wiki.rootDir,
       );
 
       // Filter by specific category if requested
