@@ -1,0 +1,19 @@
+{
+  "llm": {
+    "provider": "",
+    "model": "",
+    "apiKey": "",
+    "apiKeyExpiry": "",
+    "maxTokens": 0
+  },
+  "wiki": {
+    "rootDir": "",
+    "sourcesDir": "sources",
+    "wikiDir": "wiki",
+    "schemaDir": "schema"
+  },
+  "obsidian": {
+    "enabled": true,
+    "vaultPath": ""
+  }
+}

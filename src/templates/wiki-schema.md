@@ -1,0 +1,129 @@
+# Wiki Schema
+
+This document describes the structure, conventions, and quality standards for all pages in this wiki. It is loaded into every LLM prompt as context so the model understands how the wiki is organised.
+
+---
+
+## Directory Structure
+
+```
+wiki/
+  index.md                  # Categorised page catalogue (auto-managed)
+  log.md                    # Append-only action log (auto-managed)
+  sources/                  # Source summary pages
+  entities/                 # Entity pages (people, organisations, technologies, etc.)
+  topics/                   # Topic and concept pages
+  synthesis/                # Cross-cutting analysis and comparison pages
+  queries/                  # Saved query result pages
+  lint-report.md            # Latest lint output (auto-managed)
+```
+
+Each subdirectory corresponds to a page type. Pages must be placed in the directory matching their `type` frontmatter field.
+
+---
+
+## Page Types
+
+| Type | Directory | Purpose |
+|------|-----------|---------|
+| `source-summary` | `sources/` | Summarises a single ingested source document. One page per source. |
+| `entity` | `entities/` | Describes a specific person, organisation, technology, concept, event, or place. |
+| `topic` | `topics/` | Covers a broader topic or concept area, linking to related entities. |
+| `synthesis` | `synthesis/` | Cross-cutting analysis comparing or connecting multiple sources/entities. |
+| `comparison` | `synthesis/` | Side-by-side comparison of two or more entities or approaches. |
+| `query-result` | `queries/` | Saved answer to a user query, with citations to wiki pages. |
+
+---
+
+## Frontmatter Requirements
+
+Every wiki page must begin with a YAML frontmatter block delimited by `---`. All dates are ISO 8601 strings (never bare YAML dates).
+
+### Required Fields (all page types)
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `title` | string | Human-readable page title |
+| `type` | string | One of: `source-summary`, `entity`, `topic`, `synthesis`, `comparison`, `query-result` |
+| `created` | string | ISO 8601 timestamp when the page was first created |
+| `updated` | string | ISO 8601 timestamp of the last modification |
+| `sources` | string[] | Source IDs or file references this page draws from |
+| `tags` | string[] | Categorisation tags for the page |
+
+### Optional Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `aliases` | string[] | Alternative names for Obsidian link resolution |
+| `status` | string | One of: `draft`, `reviewed`, `stable` |
+
+### Example Frontmatter
+
+```yaml
+---
+title: "Machine Learning"
+type: "topic"
+created: "2026-04-09T14:30:00Z"
+updated: "2026-04-09T14:30:00Z"
+sources: ["a1b2c3d4"]
+tags: ["ai", "computer-science"]
+aliases: ["ML"]
+status: "draft"
+---
+```
+
+---
+
+## Naming Conventions
+
+- **Filenames**: Always kebab-case, lowercase, `.md` extension.
+  - Example: `machine-learning.md`, `john-doe-entity.md`
+- **Page titles**: Human-readable, title case or natural casing.
+  - Example: `"Machine Learning"`, `"John Doe"`
+- **Tags**: Lowercase, hyphen-separated.
+  - Example: `computer-science`, `natural-language-processing`
+
+---
+
+## Wiki-Link Conventions
+
+This wiki uses Obsidian-style wiki-links for cross-referencing:
+
+- **Basic link**: `[[page-name]]` -- links to the page with the matching filename stem.
+- **Display text**: `[[page-name|Display Text]]` -- renders "Display Text" but links to `page-name.md`.
+- **Case-insensitive**: Link resolution is case-insensitive. `[[Machine Learning]]` resolves to `machine-learning.md`.
+
+### Rules
+
+1. Link entity and topic names on **first mention** in each page. Do not over-link repeated mentions.
+2. Every entity or topic that has its own wiki page should be linked when mentioned.
+3. Do not create links to pages that do not exist (broken links).
+4. Source summary pages should link to the entities and topics they discuss.
+
+---
+
+## Content Quality Guidelines
+
+1. **Objective tone**: Write in an encyclopedic, neutral voice. Avoid first-person or opinion.
+2. **Factual accuracy**: Only include information that comes from ingested sources. Cite sources.
+3. **Conciseness**: Be comprehensive but avoid repetition. Aim for 300--800 words for summaries.
+4. **Structure**: Use markdown headings (`##`, `###`) to organise sections logically.
+5. **Contradictions**: When sources disagree, document the contradiction using a callout:
+   ```
+   > [!warning] Contradiction
+   > Source "X" states A, while source "Y" states B.
+   ```
+6. **Cross-references**: End entity and topic pages with a "Related" or "See Also" section linking to connected pages.
+7. **Sources section**: End each page with a "## Sources" section listing the source documents that contributed information.
+
+---
+
+## Index File
+
+The `index.md` file is auto-managed and contains a categorised table of all wiki pages. Do not edit it manually. It is regenerated by the `rebuild-index` command and updated incrementally during ingest operations.
+
+---
+
+## Log File
+
+The `log.md` file is an append-only audit trail of all wiki operations (ingest, query, lint, page creation, etc.). Do not edit or delete entries from this file.

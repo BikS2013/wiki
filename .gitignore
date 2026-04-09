@@ -1,0 +1,33 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+
+# Configuration (may contain API keys)
+config.json
+.env
+
+# Source maps
+*.js.map
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# TypeScript cache
+*.tsbuildinfo
+
+# Temporary files
+tmp/
+*.tmp
+
+# npm
+npm-debug.log*
