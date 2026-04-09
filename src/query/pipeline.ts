@@ -1,7 +1,8 @@
 // src/query/pipeline.ts -- QueryPipeline: index lookup -> page read -> LLM synthesis
 
 import { join } from 'node:path';
-import { readFile } from 'node:fs/promises';
+import { readFile, readdir } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import type { LLMProvider } from '../llm/provider.js';
 import type { WikiConfig } from '../config/types.js';
 import type { Logger } from '../utils/logger.js';
@@ -122,6 +123,9 @@ export class QueryPipeline {
     }
 
     // Step 3: Read selected pages (up to maxPages)
+    // The LLM may return bare page names (e.g., "556-557-xlsx") without
+    // subdirectory prefix or .md extension. We need to resolve them to actual
+    // file paths by searching all wiki subdirectories.
     const pagesToRead = selection.pages.slice(0, options.maxPages);
     this.logger.verbose(
       `Reading ${pagesToRead.length} page(s): ${pagesToRead.map((p) => p.path).join(', ')}`,
@@ -129,10 +133,15 @@ export class QueryPipeline {
 
     const pageContents: Array<{ path: string; content: string }> = [];
     for (const page of pagesToRead) {
-      const parsed = await this.pageManager.readPage(page.path);
+      const resolvedPath = await this.resolvePagePath(page.path, wikiDir);
+      if (!resolvedPath) {
+        this.logger.verbose(`Page not found: ${page.path}`);
+        continue;
+      }
+      const parsed = await this.pageManager.readPage(resolvedPath);
       if (parsed) {
         pageContents.push({
-          path: page.path,
+          path: resolvedPath,
           content: `# ${parsed.frontmatter.title}\n\n${parsed.content}`,
         });
       }
@@ -194,6 +203,57 @@ export class QueryPipeline {
   // ---------------------------------------------------------------------------
   // Private helpers
   // ---------------------------------------------------------------------------
+
+  /**
+   * Resolve a page name/path from the LLM to an actual relative file path.
+   * The LLM may return bare names like "staffing-and-personnel" without
+   * the subdirectory (entities/, topics/, sources/) or .md extension.
+   * This method searches all wiki subdirectories to find the actual file.
+   */
+  private async resolvePagePath(pagePath: string, wikiDir: string): Promise<string | null> {
+    // Normalize: strip .md if present, strip leading subdir if present
+    const cleanName = pagePath
+      .replace(/\.md$/, '')
+      .replace(/^(entities|topics|sources|synthesis|queries)\//, '');
+
+    // Try the path as-is first (with .md extension)
+    const candidates = [
+      pagePath,
+      `${pagePath}.md`,
+      `entities/${cleanName}.md`,
+      `topics/${cleanName}.md`,
+      `sources/${cleanName}.md`,
+      `synthesis/${cleanName}.md`,
+      `queries/${cleanName}.md`,
+    ];
+
+    for (const candidate of candidates) {
+      const fullPath = join(wikiDir, candidate);
+      if (existsSync(fullPath)) {
+        return candidate;
+      }
+    }
+
+    // Last resort: case-insensitive search across all subdirs
+    const subdirs = ['entities', 'topics', 'sources', 'synthesis', 'queries'];
+    const lowerName = cleanName.toLowerCase();
+    for (const subdir of subdirs) {
+      const dirPath = join(wikiDir, subdir);
+      try {
+        const files = await readdir(dirPath);
+        const match = files.find(
+          (f) => f.toLowerCase().replace(/\.md$/, '') === lowerName,
+        );
+        if (match) {
+          return `${subdir}/${match}`;
+        }
+      } catch {
+        // Directory may not exist
+      }
+    }
+
+    return null;
+  }
 
   private async saveQueryResult(
     question: string,
