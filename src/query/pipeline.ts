@@ -184,16 +184,22 @@ export class QueryPipeline {
     const answer = synthesisResult.text;
     const citedPages = extractWikiLinks(answer);
 
+    // Step 4b: Collect original source documents from cited pages
+    const sourcesList = await this.collectOriginalSources(pageContents, wikiDir);
+    const fullAnswer = sourcesList.length > 0
+      ? answer + '\n\n---\n\n### Sources\n\n' + sourcesList.map((s) => `- ${s}`).join('\n')
+      : answer;
+
     // Step 5: Save if requested
     let savedPath: string | undefined;
     if (options.save && !options.dryRun) {
-      savedPath = await this.saveQueryResult(options.question, answer, citedPages);
+      savedPath = await this.saveQueryResult(options.question, fullAnswer, citedPages);
     }
 
     this.logger.verbose(tracker.getSummary());
 
     return {
-      answer,
+      answer: fullAnswer,
       citedPages,
       savedPath,
       tokenUsage: tracker.getTotal(),
@@ -203,6 +209,87 @@ export class QueryPipeline {
   // ---------------------------------------------------------------------------
   // Private helpers
   // ---------------------------------------------------------------------------
+
+  /**
+   * Collect original source documents from the pages used to answer the query.
+   * Reads each page's frontmatter to find its `sources` field, then looks up
+   * the source registry to get original file names and URLs.
+   */
+  private async collectOriginalSources(
+    pageContents: Array<{ path: string; content: string }>,
+    wikiDir: string,
+  ): Promise<string[]> {
+    const sourceNames = new Set<string>();
+    const sourceLines: string[] = [];
+    const seen = new Set<string>();
+
+    // Collect source references from all consulted pages' frontmatter
+    for (const page of pageContents) {
+      const resolvedPath = join(wikiDir, page.path);
+      try {
+        const raw = await readFile(resolvedPath, 'utf-8');
+        const { parseFrontmatter } = await import('../wiki/frontmatter.js');
+        const { data } = parseFrontmatter(raw);
+        if (data.sources && Array.isArray(data.sources)) {
+          for (const s of data.sources) {
+            sourceNames.add(String(s));
+          }
+        }
+      } catch {
+        // Skip pages that can't be parsed
+      }
+    }
+
+    // Look up source entries in the registry to get URLs and filenames
+    try {
+      const registryPath = join(
+        this.config.wiki.rootDir,
+        this.config.wiki.sourcesDir,
+        'registry.json',
+      );
+      const { SourceRegistry } = await import('../wiki/registry.js');
+      const registry = new SourceRegistry(registryPath);
+      await registry.load();
+
+      if (sourceNames.size > 0) {
+        for (const entry of registry.getAll()) {
+          if (entry.status !== 'ingested') continue;
+          // Match by filename, path, or ID from frontmatter sources
+          const matches = sourceNames.has(entry.fileName) ||
+            sourceNames.has(entry.filePath) ||
+            sourceNames.has(entry.id);
+          if (!matches) continue;
+
+          const key = entry.sourceUrl ?? entry.filePath;
+          if (seen.has(key)) continue;
+          seen.add(key);
+
+          if (entry.sourceUrl) {
+            sourceLines.push(`${entry.fileName} — ${entry.sourceUrl}`);
+          } else {
+            sourceLines.push(`${entry.fileName} (${entry.filePath})`);
+          }
+        }
+      }
+    } catch {
+      // Registry not available — fall back to listing source names from frontmatter
+      for (const name of sourceNames) {
+        if (!seen.has(name)) {
+          seen.add(name);
+          sourceLines.push(name);
+        }
+      }
+    }
+
+    // If no specific sources found but we have frontmatter references, list those
+    if (sourceLines.length === 0 && sourceNames.size > 0) {
+      for (const name of sourceNames) {
+        sourceLines.push(name);
+      }
+    }
+
+    return sourceLines;
+  }
 
   /**
    * Resolve a page name/path from the LLM to an actual relative file path.

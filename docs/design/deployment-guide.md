@@ -204,6 +204,7 @@ All configuration can be set via environment variables, which take priority over
 npx tsx src/cli.ts init
 npx tsx src/cli.ts ingest article.md
 npx tsx src/cli.ts ingest --clipboard          # Ingest from clipboard
+npx tsx src/cli.ts ingest --url "https://..."  # Ingest from web page
 npx tsx src/cli.ts query "What is X?"
 npx tsx src/cli.ts lint
 npx tsx src/cli.ts status
@@ -280,6 +281,16 @@ wiki ingest path/to/docs/ --recursive
 # From clipboard (text or image, macOS)
 wiki ingest --clipboard
 
+# From a web page URL
+wiki ingest --url "https://example.com/article"
+
+# From a YouTube video (fetches transcript/captions)
+wiki ingest --youtube "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+
+# Update an existing URL source (re-fetches and replaces)
+wiki ingest --update "https://example.com/article"
+wiki ingest --update "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+
 # With tags
 wiki ingest paper.pdf --tags research ml
 
@@ -287,7 +298,7 @@ wiki ingest paper.pdf --tags research ml
 wiki ingest article.md --dry-run
 ```
 
-**Note**: Source files are always copied into `sources/files/` inside the wiki root directory. The wiki is self-contained — you can move or delete the original source files after ingestion. Clipboard content is saved as `clipboard-<timestamp>.txt` (text) or `clipboard-<timestamp>.png` (image).
+**Note**: Source files are always copied into `sources/files/` inside the wiki root directory. The wiki is self-contained — you can move or delete the original source files after ingestion. Clipboard content is saved as `clipboard-<timestamp>.txt` or `.png`. Web page content is saved as `web-<title>-<timestamp>.md` with extracted article text. YouTube transcripts are saved as `youtube-<title>-<timestamp>.md` with timestamped captions. All URL-based sources (web and YouTube) store their original URL in the registry and in a `wiki/sources-catalog.md` page, enabling updates with `--update <url>`.
 
 ### Query the Wiki
 
@@ -337,6 +348,8 @@ wiki status
 | Markdown | `.md` | Read as text |
 | Plain text | `.txt` | Read as text |
 | PDF | `.pdf` | Text extraction via pdf-parse |
+| Word | `.docx` | Text extraction via mammoth |
+| Excel | `.xlsx`, `.xls` | Converted to CSV per sheet via xlsx |
 | JSON | `.json` | Parsed and stringified |
 | CSV | `.csv` | Read as text |
 | Images | `.png`, `.jpg`, `.jpeg`, `.webp` | Base64 encoded, processed via LLM vision |

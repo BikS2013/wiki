@@ -85,8 +85,11 @@ A TypeScript CLI tool that builds and maintains a persistent, structured persona
 
         Commands:
             wiki init                      Initialize a new wiki in the current directory
+            wiki init --reset              Reset wiki (clears all content, asks confirmation)
             wiki ingest <source>           Ingest a source file or directory
             wiki ingest --clipboard        Ingest from system clipboard (text or image)
+            wiki ingest --url <url>        Ingest content from a web page URL
+            wiki ingest --youtube <url>    Ingest transcript from a YouTube video
             wiki query <question>          Query the wiki with natural language
             wiki lint                      Run health checks on the wiki
             wiki status                    Show wiki statistics
@@ -103,6 +106,10 @@ A TypeScript CLI tool that builds and maintains a persistent, structured persona
 
         Ingest Options:
             --clipboard                    Ingest from system clipboard (text or image, macOS)
+            --text <content>               Ingest text directly from the command line
+            --url <urls>                   Ingest from web page URL(s) (comma-separated for multiple)
+            --youtube <urls>               Ingest YouTube transcript(s) (comma-separated for multiple)
+            --update <url>                 Re-fetch and update an existing URL source
             --recursive                    Scan directory recursively
             --format <type>                Force source format
             --tags <tags...>               Tags for generated pages
@@ -113,6 +120,8 @@ A TypeScript CLI tool that builds and maintains a persistent, structured persona
             The wiki is self-contained — original source files can be moved/deleted
             after ingestion without affecting the wiki.
             Clipboard content is saved as clipboard-<timestamp>.txt or .png.
+            URL and YouTube sources store the original URL for re-fetching with --update.
+            A sources-catalog.md page tracks all URL-based sources.
 
         Query Options:
             --save                         Save answer as a wiki page
@@ -160,7 +169,7 @@ A TypeScript CLI tool that builds and maintains a persistent, structured persona
             npx tsx test_scripts/test-index-manager.ts
             npx tsx test_scripts/test-log.ts
 
-        Supported source formats: .md, .txt, .pdf, .json, .csv, .png, .jpg, .jpeg, .webp
+        Supported source formats: .md, .txt, .pdf, .json, .csv, .png, .jpg, .jpeg, .webp, .docx, .xlsx, .xls
         Output: Obsidian-compatible markdown with YAML frontmatter and [[wiki-links]]
 
         Examples:
@@ -168,6 +177,10 @@ A TypeScript CLI tool that builds and maintains a persistent, structured persona
             npx tsx src/cli.ts ingest article.md              # Ingest a source (copies to sources/files/)
             npx tsx src/cli.ts ingest docs/ --recursive       # Ingest a directory
             npx tsx src/cli.ts ingest --clipboard             # Ingest from clipboard (text or image)
+            npx tsx src/cli.ts ingest --text "Some content"   # Ingest text directly
+            npx tsx src/cli.ts ingest --url "https://..."     # Ingest from web page
+            npx tsx src/cli.ts ingest --youtube "https://youtube.com/watch?v=..."  # Ingest YouTube transcript
+            npx tsx src/cli.ts ingest --update "https://..."   # Re-fetch and update a URL source
             npx tsx src/cli.ts query "What is X?"             # Query the wiki
             npx tsx src/cli.ts query --save "Compare A and B" # Query and save result
             npx tsx src/cli.ts lint                           # Health check

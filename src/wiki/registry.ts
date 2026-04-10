@@ -28,6 +28,8 @@ export interface SourceEntry {
   generatedPages: string[];
   /** User-provided metadata key-value pairs */
   metadata: Record<string, string>;
+  /** Original URL for web/YouTube sources (used for re-fetching updates) */
+  sourceUrl?: string;
 }
 
 /**
@@ -170,6 +172,14 @@ export class SourceRegistry {
   findByPath(filePath: string): SourceEntry | undefined {
     this.ensureLoaded();
     return this.data.sources.find((s) => s.filePath === filePath);
+  }
+
+  /**
+   * Find a source entry by its original URL (for web/YouTube sources).
+   */
+  findByUrl(url: string): SourceEntry | undefined {
+    this.ensureLoaded();
+    return this.data.sources.find((s) => s.sourceUrl === url);
   }
 
   /**

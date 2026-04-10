@@ -1,8 +1,9 @@
 // src/commands/init.ts -- wiki init: create directory structure and templates
 
 import { Command } from 'commander';
-import { mkdir, writeFile, access } from 'node:fs/promises';
+import { mkdir, writeFile, access, rm } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
+import { createInterface } from 'node:readline';
 import { createLogger, type Logger } from '../utils/logger.js';
 
 // ---------------------------------------------------------------------------
@@ -364,6 +365,28 @@ node_modules/
 // Helpers
 // ---------------------------------------------------------------------------
 
+/**
+ * Ask the user to confirm wiki reset via interactive prompt.
+ * Returns true if the user types 'yes', false otherwise.
+ */
+async function confirmReset(rootDir: string): Promise<boolean> {
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  return new Promise((resolve) => {
+    rl.question(
+      `\nWARNING: This will permanently delete all wiki content at:\n  ${rootDir}\n\n` +
+      `  - wiki/ (all generated pages, index, log)\n` +
+      `  - sources/ (all copied source files and registry)\n` +
+      `  - schema/ (all prompt templates)\n` +
+      `  - config.json\n\n` +
+      `Type 'yes' to confirm: `,
+      (answer) => {
+        rl.close();
+        resolve(answer.trim().toLowerCase() === 'yes');
+      },
+    );
+  });
+}
+
 async function pathExists(p: string): Promise<boolean> {
   try {
     await access(p);
@@ -396,8 +419,9 @@ export function registerInitCommand(program: Command): void {
     .command('init')
     .description('Initialize a new LLM Wiki in the current directory')
     .option('--path <dir>', 'Target directory (default: current working directory)')
+    .option('--reset', 'Reset an existing wiki (removes all wiki content and re-initializes)', false)
     .option('--verbose', 'Enable verbose output', false)
-    .action(async (options: { path?: string; verbose: boolean }) => {
+    .action(async (options: { path?: string; reset: boolean; verbose: boolean }) => {
       const logger = createLogger({ verbose: options.verbose });
       const rootDir = resolve(options.path ?? process.cwd());
 
@@ -408,19 +432,42 @@ export function registerInitCommand(program: Command): void {
       // ------------------------------------------------------------------
       const configPath = join(rootDir, 'config.json');
       const schemaDir = join(rootDir, 'schema');
+      const wikiExists = (await pathExists(configPath)) || (await pathExists(schemaDir));
 
-      if (await pathExists(configPath)) {
-        logger.warn(`Wiki already initialized at ${rootDir} (config.json exists).`);
-        logger.warn('Aborting to avoid overwriting existing data.');
+      if (wikiExists && !options.reset) {
+        logger.warn(`Wiki already initialized at ${rootDir}.`);
+        logger.warn('Use --reset to clear and re-initialize the wiki.');
         process.exitCode = 1;
         return;
       }
 
-      if (await pathExists(schemaDir)) {
-        logger.warn(`Wiki already initialized at ${rootDir} (schema/ directory exists).`);
-        logger.warn('Aborting to avoid overwriting existing data.');
-        process.exitCode = 1;
-        return;
+      if (wikiExists && options.reset) {
+        // Ask for confirmation before destroying data
+        const confirmed = await confirmReset(rootDir);
+        if (!confirmed) {
+          logger.info('Reset cancelled.');
+          return;
+        }
+
+        // Remove wiki content directories (preserve config.json)
+        logger.info('Removing existing wiki content...');
+        const dirsToRemove = [
+          join(rootDir, 'wiki'),
+          join(rootDir, 'sources'),
+          join(rootDir, 'schema'),
+        ];
+        for (const dir of dirsToRemove) {
+          try {
+            await rm(dir, { recursive: true, force: true });
+            logger.verbose(`Removed: ${dir}`);
+          } catch { /* may not exist */ }
+        }
+        // Also remove config.json so it gets recreated with latest template
+        try {
+          await rm(configPath, { force: true });
+        } catch { /* may not exist */ }
+
+        logger.success('Existing wiki content removed.');
       }
 
       // ------------------------------------------------------------------

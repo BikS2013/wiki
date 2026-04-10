@@ -28,6 +28,8 @@ export interface IngestOptions {
   metadata?: Record<string, string>;
   dryRun?: boolean;
   recursive?: boolean;
+  /** Original URL for web/YouTube sources (stored in registry for re-fetching) */
+  sourceUrl?: string;
 }
 
 export interface IngestResult {
@@ -147,6 +149,7 @@ export class IngestPipeline {
           status: 'ingesting',
           generatedPages: [],
           metadata: options.metadata ?? {},
+          sourceUrl: options.sourceUrl,
         });
       }
       if (!dryRun) {
@@ -434,6 +437,14 @@ export class IngestPipeline {
       }
 
       // ------------------------------------------------------------------
+      // Step 14b: Update sources catalog (for URL-based sources)
+      // ------------------------------------------------------------------
+      if (!dryRun) {
+        await this.updateSourcesCatalog(rootDir, wikiDir, registryPath);
+        this.logger.verbose('Sources catalog updated');
+      }
+
+      // ------------------------------------------------------------------
       // Step 15: Update registry status to 'ingested'
       // ------------------------------------------------------------------
       if (sourceEntry) {
@@ -474,6 +485,68 @@ export class IngestPipeline {
       }
       throw error;
     }
+  }
+
+  /**
+   * Generate/update the sources-catalog.md page in the wiki.
+   * Lists all sources with URL-based entries prominently displayed
+   * so users can request updates.
+   */
+  private async updateSourcesCatalog(
+    rootDir: string,
+    wikiDir: string,
+    registryPath: string,
+  ): Promise<void> {
+    const registry = new SourceRegistry(registryPath);
+    await registry.load();
+    const allSources = registry.getAll();
+
+    const urlSources = allSources.filter((s) => s.sourceUrl);
+    const fileSources = allSources.filter((s) => !s.sourceUrl);
+
+    const lines: string[] = [
+      '---',
+      'title: Sources Catalog',
+      'type: synthesis',
+      `created: ${new Date().toISOString()}`,
+      `updated: ${new Date().toISOString()}`,
+      'sources: []',
+      'tags: [catalog, sources]',
+      '---',
+      '',
+      '# Sources Catalog',
+      '',
+      `Total sources: ${allSources.length} | URL-based: ${urlSources.length} | File-based: ${fileSources.length}`,
+      '',
+    ];
+
+    if (urlSources.length > 0) {
+      lines.push('## URL Sources (updatable)');
+      lines.push('');
+      lines.push('These sources were ingested from URLs and can be re-fetched with `wiki ingest --update <url>`.');
+      lines.push('');
+      lines.push('| Source | URL | Status | Last Updated |');
+      lines.push('|--------|-----|--------|-------------|');
+      for (const s of urlSources) {
+        const name = s.fileName.replace(/\.md$/, '');
+        lines.push(`| ${name} | ${s.sourceUrl} | ${s.status} | ${s.updatedAt.slice(0, 10)} |`);
+      }
+      lines.push('');
+    }
+
+    if (fileSources.length > 0) {
+      lines.push('## File Sources');
+      lines.push('');
+      lines.push('| Source | File | Status | Last Updated |');
+      lines.push('|--------|------|--------|-------------|');
+      for (const s of fileSources) {
+        lines.push(`| ${s.fileName} | ${s.filePath} | ${s.status} | ${s.updatedAt.slice(0, 10)} |`);
+      }
+      lines.push('');
+    }
+
+    const catalogPath = join(wikiDir, 'sources-catalog.md');
+    await writeFile(catalogPath, lines.join('\n'), 'utf-8');
   }
 }
 

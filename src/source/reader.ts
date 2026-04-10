@@ -18,12 +18,16 @@ const TEXT_FORMATS = new Set(['.md', '.txt', '.csv']);
 const DATA_FORMATS = new Set(['.json']);
 const PDF_FORMATS = new Set(['.pdf']);
 const IMAGE_FORMATS = new Set(['.png', '.jpg', '.jpeg', '.webp']);
+const DOCX_FORMATS = new Set(['.docx']);
+const XLSX_FORMATS = new Set(['.xlsx', '.xls']);
 
 const ALL_SUPPORTED = new Set([
   ...TEXT_FORMATS,
   ...DATA_FORMATS,
   ...PDF_FORMATS,
   ...IMAGE_FORMATS,
+  ...DOCX_FORMATS,
+  ...XLSX_FORMATS,
 ]);
 
 /**
@@ -81,6 +85,28 @@ export async function readSource(filePath: string): Promise<ReadResult> {
     const buffer = await readFile(filePath);
     const content = buffer.toString('base64');
     return { content, format };
+  }
+
+  // --- DOCX ---
+  if (DOCX_FORMATS.has(ext)) {
+    const buffer = await readFile(filePath);
+    const mammoth = await import('mammoth');
+    const result = await mammoth.extractRawText({ buffer });
+    return { content: result.value, format };
+  }
+
+  // --- XLSX / XLS ---
+  if (XLSX_FORMATS.has(ext)) {
+    const buffer = await readFile(filePath);
+    const XLSX = await import('xlsx');
+    const workbook = XLSX.read(buffer, { type: 'buffer' });
+    const sheets: string[] = [];
+    for (const sheetName of workbook.SheetNames) {
+      const sheet = workbook.Sheets[sheetName];
+      const csv = XLSX.utils.sheet_to_csv(sheet);
+      sheets.push(`## Sheet: ${sheetName}\n\n${csv}`);
+    }
+    return { content: sheets.join('\n\n---\n\n'), format };
   }
 
   // Should never reach here due to the guard at the top, but TypeScript needs it

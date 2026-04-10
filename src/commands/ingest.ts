@@ -2,8 +2,8 @@
 
 import type { Command } from 'commander';
 import { resolve } from 'node:path';
-import { stat, mkdir } from 'node:fs/promises';
-import { readdirSync, statSync } from 'node:fs';
+import { stat, mkdir, writeFile } from 'node:fs/promises';
+import { readdirSync } from 'node:fs';
 import { join, extname } from 'node:path';
 
 import type { WikiConfig } from '../config/types.js';
@@ -13,6 +13,8 @@ import { IngestPipeline } from '../ingest/pipeline.js';
 import type { IngestOptions, IngestResult } from '../ingest/pipeline.js';
 import { getSupportedFormats } from '../source/reader.js';
 import { saveClipboardToFile } from '../source/clipboard.js';
+import { saveWebContentToFile } from '../source/web.js';
+import { saveYouTubeTranscriptToFile } from '../source/youtube.js';
 
 /**
  * Register the `wiki ingest <source>` command on the given Commander program.
@@ -26,6 +28,10 @@ export function registerIngestCommand(program: Command): void {
     .option('-t, --tags <tags...>', 'Tags to apply to generated pages')
     .option('-m, --metadata <pairs...>', 'Metadata key=value pairs (e.g., author=Smith project=Alpha)')
     .option('--clipboard', 'Ingest content from the system clipboard')
+    .option('--text <content>', 'Ingest text directly from the command line')
+    .option('--url <url>', 'Ingest content from a web page URL')
+    .option('--youtube <url>', 'Ingest transcript from a YouTube video URL')
+    .option('--update <url>', 'Re-fetch and update an existing URL source (web or YouTube)')
     .action(async (source: string | undefined, cmdOptions: Record<string, unknown>) => {
       // Retrieve global options from parent program
       const parentOpts = program.opts();
@@ -33,18 +39,23 @@ export function registerIngestCommand(program: Command): void {
       const verbose = parentOpts.verbose as boolean ?? false;
       const dryRun = parentOpts.dryRun as boolean ?? false;
       const useClipboard = cmdOptions.clipboard as boolean ?? false;
+      const inlineText = cmdOptions.text as string | undefined;
+      const urlInput = cmdOptions.url as string | undefined;
+      const youtubeInput = cmdOptions.youtube as string | undefined;
+      const updateUrl = cmdOptions.update as string | undefined;
 
       const logger = createLogger({ verbose });
 
-      // Validate mutually exclusive options
-      if (useClipboard && source) {
-        logger.error('Cannot use both --clipboard and a source file argument. Choose one.');
+      // Validate mutually exclusive input options
+      const inputCount = [source, useClipboard, inlineText, urlInput, youtubeInput, updateUrl].filter(Boolean).length;
+      if (inputCount > 1) {
+        logger.error('Only one input method allowed: <source>, --clipboard, --text, --url, --youtube, or --update. Choose one.');
         process.exitCode = 1;
         return;
       }
 
-      if (!useClipboard && !source) {
-        logger.error('Either provide a <source> file/directory or use --clipboard.');
+      if (inputCount === 0) {
+        logger.error('Provide a <source>, --clipboard, --text, --url, --youtube, or --update <url>.');
         process.exitCode = 1;
         return;
       }
@@ -69,6 +80,122 @@ export function registerIngestCommand(program: Command): void {
         dryRun,
         recursive: cmdOptions.recursive as boolean ?? false,
       };
+
+      // Handle inline text mode
+      if (inlineText) {
+        try {
+          const sourcesFilesDir = join(config.wiki.rootDir, 'sources', 'files');
+          await mkdir(sourcesFilesDir, { recursive: true });
+          const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+          const textFilePath = join(sourcesFilesDir, `inline-${timestamp}.md`);
+          await writeFile(textFilePath, inlineText, 'utf-8');
+          logger.info(`Inline text saved to: ${textFilePath}`);
+          const result = await pipeline.ingest(textFilePath, ingestOptions);
+          printResult(logger, result);
+        } catch (err) {
+          logger.error(`Inline text ingest failed: ${(err as Error).message}`);
+          process.exitCode = 1;
+        }
+        return;
+      }
+
+      // Handle --update mode (re-fetch URL source)
+      if (updateUrl) {
+        try {
+          const sourcesFilesDir = join(config.wiki.rootDir, 'sources', 'files');
+          const registryPath = join(config.wiki.rootDir, config.wiki.sourcesDir, 'registry.json');
+          const { SourceRegistry } = await import('../wiki/registry.js');
+          const registry = new SourceRegistry(registryPath);
+          await registry.load();
+
+          const existing = registry.findByUrl(updateUrl);
+          if (!existing) {
+            logger.error(`No source found with URL: ${updateUrl}. Ingest it first with --url or --youtube.`);
+            process.exitCode = 1;
+            return;
+          }
+
+          logger.info(`Updating source: ${existing.fileName} (${updateUrl})`);
+
+          // Detect if YouTube or web
+          const isYoutube = updateUrl.includes('youtube.com') || updateUrl.includes('youtu.be');
+          let savedPath: string;
+          if (isYoutube) {
+            savedPath = await saveYouTubeTranscriptToFile(updateUrl, sourcesFilesDir);
+          } else {
+            savedPath = await saveWebContentToFile(updateUrl, sourcesFilesDir);
+          }
+
+          // Remove old source file
+          const oldFilePath = join(config.wiki.rootDir, existing.filePath);
+          try {
+            const { unlink } = await import('node:fs/promises');
+            await unlink(oldFilePath);
+          } catch { /* old file may not exist */ }
+
+          // Remove old registry entry so pipeline creates fresh
+          registry.remove(existing.id);
+          await registry.save();
+
+          logger.info(`Re-fetched content saved to: ${savedPath}`);
+          const result = await pipeline.ingest(savedPath, { ...ingestOptions, sourceUrl: updateUrl });
+          printResult(logger, result);
+        } catch (err) {
+          logger.error(`Update failed: ${(err as Error).message}`);
+          process.exitCode = 1;
+        }
+        return;
+      }
+
+      // Handle YouTube mode (supports comma-separated list of URLs)
+      if (youtubeInput) {
+        const urls = youtubeInput.split(',').map((u) => u.trim()).filter(Boolean);
+        const sourcesFilesDir = join(config.wiki.rootDir, 'sources', 'files');
+        const allResults: IngestResult[] = [];
+        logger.info(`Processing ${urls.length} YouTube URL(s)...`);
+        for (const url of urls) {
+          try {
+            logger.info(`\n--- Fetching YouTube transcript: ${url} ---`);
+            const savedPath = await saveYouTubeTranscriptToFile(url, sourcesFilesDir);
+            logger.info(`Transcript saved to: ${savedPath}`);
+            const result = await pipeline.ingest(savedPath, { ...ingestOptions, sourceUrl: url });
+            allResults.push(result);
+          } catch (err) {
+            logger.error(`YouTube ingest failed for ${url}: ${(err as Error).message}`);
+          }
+        }
+        if (urls.length === 1 && allResults.length === 1) {
+          printResult(logger, allResults[0]);
+        } else {
+          printAggregateResults(logger, allResults);
+        }
+        return;
+      }
+
+      // Handle URL mode (supports comma-separated list of URLs)
+      if (urlInput) {
+        const urls = urlInput.split(',').map((u) => u.trim()).filter(Boolean);
+        const sourcesFilesDir = join(config.wiki.rootDir, 'sources', 'files');
+        const allResults: IngestResult[] = [];
+        logger.info(`Processing ${urls.length} web URL(s)...`);
+        for (const url of urls) {
+          try {
+            logger.info(`\n--- Fetching web page: ${url} ---`);
+            const savedPath = await saveWebContentToFile(url, sourcesFilesDir);
+            logger.info(`Web content saved to: ${savedPath}`);
+            const result = await pipeline.ingest(savedPath, { ...ingestOptions, sourceUrl: url });
+            allResults.push(result);
+          } catch (err) {
+            logger.error(`URL ingest failed for ${url}: ${(err as Error).message}`);
+          }
+        }
+        if (urls.length === 1 && allResults.length === 1) {
+          printResult(logger, allResults[0]);
+        } else {
+          printAggregateResults(logger, allResults);
+        }
+        return;
+      }
 
       // Handle clipboard mode
       if (useClipboard) {
