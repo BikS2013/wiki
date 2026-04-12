@@ -1,7 +1,8 @@
 // src/config/loader.ts -- Load config from file, merge env vars, CLI overrides
 
 import { readFile, access } from 'node:fs/promises';
-import { join, resolve } from 'node:path';
+import { join, resolve, dirname } from 'node:path';
+import { config as loadDotenv } from 'dotenv';
 import { WikiConfig, ConfigurationError } from './types.js';
 import { validateConfig, checkApiKeyExpiry } from './validator.js';
 
@@ -22,6 +23,9 @@ export async function loadConfig(options: {
   cliOverrides?: Partial<WikiConfig>;
 }): Promise<WikiConfig> {
   const configPath = await resolveConfigPath(options.configPath);
+
+  // 0. Load .env file from same directory as config.json (does not override existing env vars)
+  loadDotenv({ path: join(dirname(configPath), '.env') });
 
   // 1. Read config file
   const fileConfig = await readConfigFile(configPath);
@@ -158,6 +162,39 @@ function applyEnvOverrides(config: Record<string, unknown>): void {
   }
   if (process.env.WIKI_VERTEX_LOCATION) {
     llm.vertexLocation = process.env.WIKI_VERTEX_LOCATION;
+  }
+
+  // Discover mailbox names from WIKI_MAILBOX_<NAME>_HOST env vars
+  const mailboxEnvPattern = /^WIKI_MAILBOX_([A-Z0-9_]+)_HOST$/;
+  for (const key of Object.keys(process.env)) {
+    const match = key.match(mailboxEnvPattern);
+    if (!match) continue;
+
+    const envName = match[1];                          // e.g., 'WORK'
+    const configName = envName.toLowerCase();           // e.g., 'work'
+
+    // Ensure mailboxes section and this mailbox entry exist
+    if (!config.mailboxes || typeof config.mailboxes !== 'object') {
+      config.mailboxes = {};
+    }
+    const mailboxes = config.mailboxes as Record<string, Record<string, unknown>>;
+    if (!mailboxes[configName]) {
+      mailboxes[configName] = {};
+    }
+    const mb = mailboxes[configName];
+
+    // Apply env var values (override config file values)
+    const prefix = `WIKI_MAILBOX_${envName}`;
+    if (process.env[`${prefix}_HOST`])     mb.host = process.env[`${prefix}_HOST`];
+    if (process.env[`${prefix}_PORT`])     mb.port = parseInt(process.env[`${prefix}_PORT`]!, 10);
+    if (process.env[`${prefix}_TLS`])      mb.tls = process.env[`${prefix}_TLS`] === 'true';
+    if (process.env[`${prefix}_USER`])     mb.user = process.env[`${prefix}_USER`];
+    if (process.env[`${prefix}_PASSWORD`]) mb.password = process.env[`${prefix}_PASSWORD`];
+    if (process.env[`${prefix}_FOLDERS`])  mb.folders = process.env[`${prefix}_FOLDERS`]!.split(',').map(f => f.trim());
+    if (process.env[`${prefix}_TIMEOUT`])  mb.connectionTimeout = parseInt(process.env[`${prefix}_TIMEOUT`]!, 10);
+    if (process.env[`${prefix}_PASSWORD_EXPIRY`]) mb.passwordExpiry = process.env[`${prefix}_PASSWORD_EXPIRY`];
+    if (process.env[`${prefix}_PROCESSED_FOLDER`]) mb.processedFolder = process.env[`${prefix}_PROCESSED_FOLDER`];
+    if (process.env[`${prefix}_IGNORED_FOLDER`]) mb.ignoredFolder = process.env[`${prefix}_IGNORED_FOLDER`];
   }
 }
 

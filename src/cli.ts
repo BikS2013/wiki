@@ -93,6 +93,9 @@ export async function createProgram(): Promise<Command> {
   const { registerIngestCommand } = await import('./commands/ingest.js');
   registerIngestCommand(program);
 
+  const { registerMailCheckCommand } = await import('./commands/mail-check.js');
+  registerMailCheckCommand(program);
+
   // Commands that export execute() -- registered inline
   registerQueryCommand(program);
   registerLintCommand(program);

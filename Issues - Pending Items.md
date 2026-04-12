@@ -26,6 +26,16 @@
 
 9. **`formatReport` in `lint/report.ts` is redundant** -- It calls `generateReport()` internally and then `formatReportAsMarkdown()`. No caller uses `formatReport()` directly; `commands/lint.ts` calls `generateReport()` and `formatReportAsMarkdown()` separately.
 
+### Mailbox Ingest Feature
+
+13. **`isUIDProcessed()` uses linear scan instead of binary search** -- `src/source/mailbox-state.ts` line 114 uses `Array.includes()` for UID lookup, which is O(n). The design document (MI-5.2) mentions "binary search for large sets." For typical mailbox sizes (hundreds to low thousands of UIDs) this is acceptable, but for mailboxes with tens of thousands of processed UIDs, performance could degrade. Consider switching to a Set or implementing binary search if needed.
+
+14. **No test scripts for mailbox ingest modules** -- The design (MI-12) specifies four test files: `test-mailbox-config.ts`, `test-imap-client.ts`, `test-mailbox-state.ts`, and `test-email-processor.ts`. These have not yet been created.
+
+15. **Design document `validateMailboxConfig` signature differs from implementation** -- The design (MI-6.1) specifies `validateMailboxConfig(config: WikiConfig, mailboxName?: string)` but the implementation uses `validateMailboxConfig(name: string, mailbox: unknown)`. The implementation signature is better (single-responsibility), but the design document should be updated to match.
+
+16. **Design mentions `stripAngleBrackets` helper but it is not implemented** -- The design (MI-5.1) lists a `stripAngleBrackets(id: string): string` helper function, but it was not needed in the implementation and was omitted. The design should be updated to remove it, or it should be added if future CID handling requires it.
+
 ### Notes
 
 10. **Context limit values use round numbers instead of exact powers of 2** -- `src/llm/tokens.ts` uses `1_000_000` for Gemini 2.0 Flash / 2.5 Pro / 2.5 Flash and `2_000_000` for Gemini 1.5 Pro. The refined requirements specified `1_048_576` and `2_097_152` (exact binary values). The round numbers are acceptable since Google's documentation uses approximate values, but this is a known deviation from the spec.

@@ -1,6 +1,6 @@
 // src/config/validator.ts -- Validate required fields, conditional fields, API key expiry
 
-import { WikiConfig, ConfigurationError } from './types.js';
+import { WikiConfig, type MailboxConfig, ConfigurationError } from './types.js';
 
 const VALID_PROVIDERS = ['anthropic', 'azure', 'vertex'] as const;
 
@@ -163,6 +163,164 @@ export function checkApiKeyExpiry(config: WikiConfig): void {
     process.stderr.write(
       `[WARN] API key expires in ${daysLeft} day${daysLeft === 1 ? '' : 's'} (${config.llm.apiKeyExpiry}). Please renew soon.\n`,
     );
+  }
+}
+
+/**
+ * Validate a single mailbox configuration object.
+ * Throws ConfigurationError for each missing or invalid required field.
+ *
+ * @param name     Mailbox name (used in error field paths like 'mailboxes.work.host')
+ * @param mailbox  Raw mailbox config object to validate
+ * @returns The validated MailboxConfig
+ */
+export function validateMailboxConfig(name: string, mailbox: unknown): MailboxConfig {
+  if (!mailbox || typeof mailbox !== 'object') {
+    throw new ConfigurationError(
+      `mailboxes.${name}`,
+      `Missing or invalid mailbox configuration for "${name}"`,
+    );
+  }
+
+  const mb = mailbox as Record<string, unknown>;
+  const prefix = `mailboxes.${name}`;
+
+  // host: non-empty string
+  if (typeof mb.host !== 'string' || mb.host.length === 0) {
+    throw new ConfigurationError(
+      `${prefix}.host`,
+      `Missing required configuration: ${prefix}.host (non-empty string)`,
+    );
+  }
+
+  // port: positive integer
+  if (
+    typeof mb.port !== 'number' ||
+    !Number.isInteger(mb.port) ||
+    mb.port <= 0
+  ) {
+    throw new ConfigurationError(
+      `${prefix}.port`,
+      `${prefix}.port must be a positive integer`,
+    );
+  }
+
+  // tls: boolean
+  if (typeof mb.tls !== 'boolean') {
+    throw new ConfigurationError(
+      `${prefix}.tls`,
+      `${prefix}.tls must be a boolean`,
+    );
+  }
+
+  // user: non-empty string
+  if (typeof mb.user !== 'string' || mb.user.length === 0) {
+    throw new ConfigurationError(
+      `${prefix}.user`,
+      `Missing required configuration: ${prefix}.user (non-empty string)`,
+    );
+  }
+
+  // password: non-empty string
+  if (typeof mb.password !== 'string' || mb.password.length === 0) {
+    throw new ConfigurationError(
+      `${prefix}.password`,
+      `Missing required configuration: ${prefix}.password (non-empty string)`,
+    );
+  }
+
+  // folders: non-empty array of non-empty strings
+  if (
+    !Array.isArray(mb.folders) ||
+    mb.folders.length === 0 ||
+    !mb.folders.every((f: unknown) => typeof f === 'string' && (f as string).length > 0)
+  ) {
+    throw new ConfigurationError(
+      `${prefix}.folders`,
+      `${prefix}.folders must be a non-empty array of non-empty strings`,
+    );
+  }
+
+  // connectionTimeout: positive integer
+  if (
+    typeof mb.connectionTimeout !== 'number' ||
+    !Number.isInteger(mb.connectionTimeout) ||
+    mb.connectionTimeout <= 0
+  ) {
+    throw new ConfigurationError(
+      `${prefix}.connectionTimeout`,
+      `${prefix}.connectionTimeout must be a positive integer`,
+    );
+  }
+
+  // passwordExpiry: if present, must be valid ISO 8601 date
+  if (mb.passwordExpiry !== undefined && mb.passwordExpiry !== null) {
+    if (typeof mb.passwordExpiry !== 'string') {
+      throw new ConfigurationError(
+        `${prefix}.passwordExpiry`,
+        `${prefix}.passwordExpiry must be a valid ISO 8601 date string`,
+      );
+    }
+    const parsed = new Date(mb.passwordExpiry as string);
+    if (isNaN(parsed.getTime())) {
+      throw new ConfigurationError(
+        `${prefix}.passwordExpiry`,
+        `${prefix}.passwordExpiry is not a valid date: ${mb.passwordExpiry}`,
+      );
+    }
+  }
+
+  return mb as unknown as MailboxConfig;
+}
+
+/**
+ * Guard: ensure the config has at least one mailbox configured.
+ * Called at the start of the mail-check command action.
+ *
+ * @throws ConfigurationError if config.mailboxes is undefined or empty.
+ */
+export function validateMailboxesExist(config: WikiConfig): void {
+  if (!config.mailboxes || Object.keys(config.mailboxes).length === 0) {
+    throw new ConfigurationError(
+      'mailboxes',
+      'No mailbox configurations found. Add a "mailboxes" section to config.json or set WIKI_MAILBOX_* environment variables.',
+    );
+  }
+}
+
+/**
+ * Check password expiry for all configured mailboxes.
+ * Emits warnings/errors to stderr. Does NOT throw.
+ * Follows the checkApiKeyExpiry() pattern.
+ */
+export function checkMailboxPasswordExpiry(config: WikiConfig): void {
+  if (!config.mailboxes) return;
+
+  for (const [name, mailbox] of Object.entries(config.mailboxes)) {
+    if (!mailbox.passwordExpiry) continue;
+
+    const expiryDate = new Date(mailbox.passwordExpiry);
+    if (isNaN(expiryDate.getTime())) {
+      process.stderr.write(
+        `[WARN] mailboxes.${name}.passwordExpiry is not a valid date: ${mailbox.passwordExpiry}\n`,
+      );
+      continue;
+    }
+
+    const now = new Date();
+    const msPerDay = 24 * 60 * 60 * 1000;
+    const daysUntilExpiry = (expiryDate.getTime() - now.getTime()) / msPerDay;
+
+    if (daysUntilExpiry < 0) {
+      process.stderr.write(
+        `[ERROR] Password for mailbox "${name}" expired on ${mailbox.passwordExpiry}. Please renew.\n`,
+      );
+    } else if (daysUntilExpiry <= 7) {
+      const daysLeft = Math.ceil(daysUntilExpiry);
+      process.stderr.write(
+        `[WARN] Password for mailbox "${name}" expires in ${daysLeft} day${daysLeft === 1 ? '' : 's'} (${mailbox.passwordExpiry}). Please renew soon.\n`,
+      );
+    }
   }
 }
 

@@ -347,3 +347,84 @@ Clipboard content must be saved as a file in `sources/files/` with a generated n
 
 ### FR-58: Clipboard/Source Mutual Exclusivity
 The `--clipboard` flag and `<source>` argument are mutually exclusive. If both are provided, the CLI must show an error. If neither is provided, the CLI must show an error.
+
+---
+
+## Email / Mailbox Ingestion (added 2026-04-12)
+
+### Email Fetching
+
+### FR-59: IMAP Mailbox Connection
+The CLI must connect to an IMAP server using the configured host, port, credentials, and TLS settings. The protocol is IMAP (not POP3) because IMAP leaves messages on the server and supports UID-based tracking, which is essential for idempotent processing.
+
+### FR-60: Folder Selection
+The `mail-check` command must read from one or more IMAP folders as specified in configuration. The configuration must specify a list of folder names (e.g., `["INBOX"]`, `["INBOX", "Wiki-Feed"]`). All configured folders are scanned on each run.
+
+### FR-61: Email Discovery via UID
+The command must use IMAP UIDs (not sequence numbers) combined with UIDVALIDITY to identify messages. UIDVALIDITY changes indicate the folder has been rebuilt, requiring a full rescan. The system must fetch all UIDs in the configured folder(s) and compare against the processed-message state file to identify new (unprocessed) emails.
+
+### FR-62: Email Body Extraction
+For each unprocessed email, the system must extract:
+- **Subject**: used as the source title/name
+- **Body**: prefer `text/plain` part; if only `text/html` is available, convert HTML to markdown. If both exist, use `text/plain`.
+- **Date**: the email's `Date` header, stored as metadata
+- **From**: the sender address, stored as metadata
+- **Message-ID**: the RFC 2822 `Message-ID` header, stored in the state file as a secondary deduplication key
+
+### FR-63: Attachment Extraction
+The system must extract all attachments from each email. Supported attachment formats are those already supported by the ingest pipeline: `.md`, `.txt`, `.pdf`, `.json`, `.csv`, `.png`, `.jpg`, `.jpeg`, `.webp`, `.docx`, `.xlsx`, `.xls`. Unsupported attachment formats must be logged as warnings and skipped.
+
+### FR-64: Email Body as Source Document
+The email subject and body must be composed into a single markdown source document with the following structure:
+```markdown
+# <Subject>
+
+**From**: <sender>
+**Date**: <date>
+
+<body content>
+```
+This document is saved to `sources/files/` with the naming pattern `email-<YYYY-MM-DD-HHmmss>-<sanitized-subject>.md` and ingested through the standard pipeline.
+
+### FR-65: Attachment as Source Document
+Each extracted attachment must be saved to `sources/files/` with the naming pattern `email-att-<YYYY-MM-DD-HHmmss>-<original-filename>` (with deduplication suffix if needed) and ingested through the standard pipeline independently. Attachments are linked to their parent email via metadata (`parentEmailMessageId`).
+
+### FR-66: Email Metadata Propagation
+All source entries created from a single email (body + attachments) must carry the following metadata in the source registry:
+- `source`: `"email"`
+- `emailMessageId`: the RFC 2822 `Message-ID` header value
+- `emailFrom`: sender address
+- `emailDate`: ISO 8601 date from the email's `Date` header
+- `emailSubject`: the email subject line
+- `mailboxName`: the configured mailbox name (see FR-71)
+
+### FR-67: Processed Email State Tracking
+The system must maintain a persistent JSON state file at `<rootDir>/sources/mailbox-state.json` that records which emails have been successfully processed. The structure tracks `processedUIDs` per folder (with `uidValidity` and `lastProcessedAt`) and a global `processedMessageIds` array for cross-folder/cross-mailbox deduplication.
+
+### FR-68: Atomic State Updates
+The state file must be updated only after each email (body + all its attachments) has been fully and successfully ingested. If ingestion of an email fails partway, the email's UID must NOT be recorded as processed, ensuring retry on the next run.
+
+### FR-69: Processing Order
+Emails must be processed in chronological order (oldest first by UID within each folder).
+
+### FR-70: Batch Logging
+The command must log a summary at the end of each run: number of new emails found, number successfully ingested, number of failures (with email subjects), number of attachments processed, and total wiki pages created/updated.
+
+### Multi-Mailbox Support
+
+### FR-71: Named Mailbox Configurations
+The configuration supports multiple named mailbox configurations under a `mailboxes` key. Each mailbox has a unique name used as an identifier in state tracking and metadata. Configuration supports `host`, `port`, `tls`, `user`, `password`, `folders`, `connectionTimeout`, and optional `passwordExpiry` per mailbox. Environment variables follow the pattern `WIKI_MAILBOX_<NAME>_<FIELD>`.
+
+### FR-72: Password Expiry Warning
+If a mailbox configuration includes `passwordExpiry` (ISO 8601 date string), the CLI must warn to stderr when the password is within 7 days of expiring, consistent with the existing `apiKeyExpiry` behavior (FR-39).
+
+### Integration with Existing Systems
+
+### FR-73: Standard Ingest Pipeline
+Email bodies and attachments must be ingested via the existing `IngestPipeline.ingest()` method, reusing all existing functionality: source registration, summary generation, entity/topic extraction, cross-referencing, index updates, and log entries. No modifications to the core ingest pipeline are required.
+
+### FR-74: Sources Catalog Entry
+Email sources should appear in the sources catalog (`sources-catalog.md`) if the wiki maintains one, with the email's Message-ID as the reference identifier.
+
+### FR-75: Log Entries
+Each email ingestion must append `INGEST` log entries to `wiki/log.md` via the standard `LogWriter`, consistent with other ingest operations.

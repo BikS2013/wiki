@@ -96,6 +96,7 @@ A TypeScript CLI tool that builds and maintains a persistent, structured persona
             wiki list-sources              List all registered sources
             wiki remove-source <id|name>   Remove a source and its wiki pages
             wiki rebuild-index             Regenerate index.md from wiki pages
+            wiki mail-check               Check configured mailboxes and ingest new emails
 
         Global Options:
             --config <path>                Path to config.json (default: ./config.json)
@@ -127,6 +128,28 @@ A TypeScript CLI tool that builds and maintains a persistent, structured persona
             --save                         Save answer as a wiki page
             --pages <n>                    Max wiki pages to consult
 
+        Mail-Check Options:
+            --mailbox <name>               Process only the named mailbox (default: all configured)
+            --limit <n>                    Maximum emails to process per run (across all mailboxes)
+            --reset-state                  Clear processed-email state and exit (prompts for confirmation)
+
+        Mail-Check Behavior:
+            Connects to configured IMAP mailboxes, fetches unprocessed emails (subject, body,
+            attachments), and feeds them through the ingest pipeline as wiki sources.
+            Tracks processed emails via UID + Message-ID to avoid duplicate processing.
+            Designed for periodic invocation (e.g., cron), not as a daemon.
+
+            Email Classification (optional):
+            When processedFolder AND ignoredFolder are configured for a mailbox, the LLM
+            classifies each email as "content" or "ignore" before processing:
+            - Content emails: ingested into the wiki, then moved to processedFolder
+            - Noise emails (ads, notifications, alerts): moved to ignoredFolder, skipped
+            Without these folders configured, all emails are processed without classification.
+
+            Supported attachment formats: .md, .txt, .pdf, .docx, .xlsx, .xls, .json, .csv
+            Email body is saved as markdown (HTML auto-converted via turndown).
+            Attachments are saved to sources/files/ and ingested individually.
+
         Lint Options:
             --fix                          Auto-fix issues where possible
             --output <path>                Write report to file
@@ -145,6 +168,8 @@ A TypeScript CLI tool that builds and maintains a persistent, structured persona
             Required (azure): WIKI_LLM_API_KEY, WIKI_AZURE_ENDPOINT, WIKI_AZURE_DEPLOYMENT
             Required (vertex): WIKI_VERTEX_PROJECT_ID, WIKI_VERTEX_LOCATION
             Optional: WIKI_LLM_API_KEY_EXPIRY (ISO 8601 date; warns within 7 days of expiry)
+            Mailbox env vars: WIKI_MAILBOX_<NAME>_HOST, _PORT, _TLS, _USER, _PASSWORD, _FOLDERS, _TIMEOUT, _PASSWORD_EXPIRY
+            Classification env vars: WIKI_MAILBOX_<NAME>_PROCESSED_FOLDER, WIKI_MAILBOX_<NAME>_IGNORED_FOLDER
             See docs/design/configuration-guide.md for full details.
 
         Build:
@@ -168,6 +193,8 @@ A TypeScript CLI tool that builds and maintains a persistent, structured persona
             npx tsx test_scripts/test-registry.ts
             npx tsx test_scripts/test-index-manager.ts
             npx tsx test_scripts/test-log.ts
+            npx tsx test_scripts/test-mailbox-config.ts
+            npx tsx test_scripts/test-mailbox-state.ts
 
         Supported source formats: .md, .txt, .pdf, .json, .csv, .png, .jpg, .jpeg, .webp, .docx, .xlsx, .xls
         Output: Obsidian-compatible markdown with YAML frontmatter and [[wiki-links]]
@@ -183,6 +210,10 @@ A TypeScript CLI tool that builds and maintains a persistent, structured persona
             npx tsx src/cli.ts ingest --update "https://..."   # Re-fetch and update a URL source
             npx tsx src/cli.ts query "What is X?"             # Query the wiki
             npx tsx src/cli.ts query --save "Compare A and B" # Query and save result
+            npx tsx src/cli.ts mail-check                     # Check all mailboxes for new emails
+            npx tsx src/cli.ts mail-check --mailbox work      # Check only the 'work' mailbox
+            npx tsx src/cli.ts mail-check --limit 10          # Process at most 10 new emails
+            npx tsx src/cli.ts mail-check --reset-state       # Reset all processing state
             npx tsx src/cli.ts lint                           # Health check
             npx tsx src/cli.ts lint --fix                     # Auto-fix issues
             npx tsx src/cli.ts status                         # Wiki statistics
@@ -193,5 +224,6 @@ A TypeScript CLI tool that builds and maintains a persistent, structured persona
             docs/design/project-functions.md     # Functional requirements
             docs/design/plan-001-llm-wiki-implementation.md   # Original implementation plan
             docs/design/plan-002-multi-provider-support.md    # Multi-provider plan
+            docs/design/plan-003-mailbox-ingest.md            # Mailbox ingest plan
     </info>
 </Wiki>
